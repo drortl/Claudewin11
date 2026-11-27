@@ -1,0 +1,73 @@
+# Reusable Windows build + smoke test for .NET desktop apps.
+#
+# In another repo, call it like this:
+#
+#   jobs:
+#     test:
+#       uses: drortl/Claudewin11/.github/workflows/windows-smoke-test.yml@main
+#       with:
+#         project: src/MyApp/MyApp.csproj
+#         exe-name: MyApp.exe
+#
+# Pushing to this repo runs it on the sample app in samples/HelloWinForms.
+name: Windows smoke test
+
+on:
+  push:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      project:
+        description: Path to the .csproj to build
+        required: true
+        type: string
+      exe-name:
+        description: Name of the .exe the project produces
+        required: true
+        type: string
+      seconds:
+        description: How long the app must stay running
+        required: false
+        type: number
+        default: 15
+
+jobs:
+  smoke-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PROJECT: ${{ inputs.project || 'samples/HelloWinForms/HelloWinForms.csproj' }}
+      EXE_NAME: ${{ inputs.exe-name || 'HelloWinForms.exe' }}
+      SECONDS_TO_RUN: ${{ inputs.seconds || 15 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test script lives in Claudewin11; fetch it when called from another repo.
+      - uses: actions/checkout@v4
+        with:
+          repository: drortl/Claudewin11
+          path: _smoke
+          sparse-checkout: scripts
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        shell: pwsh
+        run: dotnet publish "$env:PROJECT" -c Release -r win-x64 --self-contained false -o publish
+
+      - name: Run smoke test
+        shell: pwsh
+        run: ./_smoke/scripts/smoke-test.ps1 -ExePath "publish/$env:EXE_NAME" -Seconds $env:SECONDS_TO_RUN
+
+      - name: Keep screenshot, report and app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-test
+          path: |
+            smoke-screenshot.png
+            smoke-report.txt
+            publish/
+          if-no-files-found: ignore
